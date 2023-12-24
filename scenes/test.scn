@@ -4,7 +4,7 @@
 :place_tile 123 0 1 0
 :place_tile 123 0 2 0
 :foo
-:place_tile 123 1 0 1
+:place_tile 123 1 0 // 1
 :place_tile 123 1 1 1
 :place_tile 123 1 2 1
 :place_tile 123 2 0 2
