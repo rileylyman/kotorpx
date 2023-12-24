@@ -23,15 +23,18 @@ int32_t str_find_index(const char* str, char delim, uint32_t start_idx) {
 
 struct str_SplitIter {
     char *s, *cur;
-    uint32_t num_tokens;
+    char sep;
+    uint32_t num_tokens, next_token;
     uint32_t total_len;
 };
 
 struct str_SplitIter str_split(char* s, char sep) {
     struct str_SplitIter self = {0};
     self.s = self.cur = s;
+    self.sep = sep;
     self.total_len = strlen(s);
     self.num_tokens = 0;
+    self.next_token = 0;
 
     bool in_token = false;
     for (uint32_t i = 0; i < self.total_len; i++) {
@@ -52,6 +55,7 @@ char* str_split_next(struct str_SplitIter* self) {
         return NULL;
     }
     char* ret = self->cur;
+    self->next_token++;
     while (*self->cur != 0 && self->cur - self->s < self->total_len) {
         self->cur++;
     }
@@ -59,4 +63,21 @@ char* str_split_next(struct str_SplitIter* self) {
         self->cur++;
     }
     return ret;
+}
+
+uint32_t str_split_seen_seps(struct str_SplitIter* self) {
+    char* beg = self->s;
+    uint32_t ret = 0;
+    while (beg != self->cur) {
+        if (*beg == self->sep) {
+            ret++;
+        }
+        beg++;
+    }
+    return ret;
+}
+
+void str_split_restart(struct str_SplitIter* self) {
+    self->cur = self->s;
+    self->next_token = 0;
 }

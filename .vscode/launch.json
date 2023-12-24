@@ -3,12 +3,12 @@
     "configurations": [
         {
             "name": "Debug",
-            "type": "cppdbg",
+            "type": "cppvsdbg",
             "request": "launch",
             "program": "${workspaceFolder}/bin/kotorpx.exe",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "miDebuggerPath": "C:\\Users\\Riley\\scoop\\shims\\gdb.exe"
+            "preLaunchTask": "build",
         }
     ]
 }

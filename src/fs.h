@@ -18,15 +18,7 @@
 
 int64_t getdelim(char** lineptr, size_t* n, int delimiter, FILE* fp);
 
-enum fs_Error {
-    FS_ERROR_NONE = 0,
-    FS_ERROR_FILE_DOES_NOT_EXIST,
-    FS_ERROR_IS_A_DIR,
-};
-
 struct fs_FileInfo {
-    enum fs_Error error;
-
     bool exists;
     uint64_t size_bytes;
     bool is_dir;
@@ -37,7 +29,7 @@ struct fs_FileInfo fs_file_info(const char* path) {
 
     // Need to do this because for some reason stat crashes on windows if the file
     // doesn't exist.
-    FILE* fp = fopen(path, 0);
+    FILE* fp = fopen(path, "r");
     if (!fp) {
         fi.exists = false;
         return fi;
@@ -56,64 +48,18 @@ struct fs_FileInfo fs_file_info(const char* path) {
     return fi;
 }
 
-struct fs_SplitIter {
-    enum fs_Error error;
-
-    char sep;
-    OWNED FILE* file;
-    char* line;
-    uint32_t token_number;
-};
-
-struct fs_SplitIter fs_split_iter_new(const char* path, char sep) {
-    struct fs_SplitIter ret = {};
-
+OWNED char* fs_read_file_to_str(const char* path) {
     struct fs_FileInfo fi = fs_file_info(path);
-    if (!fi.exists) {
-        ret.error = FS_ERROR_FILE_DOES_NOT_EXIST;
-        return ret;
-    }
-
-    if (fi.is_dir) {
-        ret.error = FS_ERROR_IS_A_DIR;
-        return ret;
-    }
-
-    FILE* file = fopen(path, "r");
-    assert(file);
-    ret.file = file;
-    ret.sep = sep;
-    ret.line = NULL;
-    ret.token_number = 0;
-
-    return ret;
-}
-
-char* fs_split_iter_next(struct fs_SplitIter* self) {
-    uint64_t size;
-    int64_t n_bytes = getdelim(&self->line, &size, self->sep, self->file);
-    if (n_bytes < 0) {
+    if (!fi.exists || fi.is_dir) {
         return NULL;
     }
 
-    self->token_number++;
+    FILE* fp = fopen(path, "r");
+    assert(fp);
 
-    if (self->line[0] == self->sep) {
-        return fs_split_iter_next(self);
-    }
-
-    if (self->line[n_bytes - 1] == self->sep) {
-        self->line[n_bytes - 1] = 0;
-    }
-    return self->line;
-}
-
-void fs_split_iter_restart(struct fs_SplitIter* self) {
-    fseek(self->file, 0, SEEK_SET);
-    self->token_number = 0;
-}
-
-void fs_split_iter_delete(struct fs_SplitIter* self) {
-    fclose(self->file);
-    free(self->line);
+    char* ret = (char*)malloc(fi.size_bytes + 1);
+    ret[fi.size_bytes] = 0;
+    fread(ret, 1, fi.size_bytes, fp);
+    fclose(fp);
+    return ret;
 }

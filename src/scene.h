@@ -2,27 +2,21 @@
 
 #include <stdbool.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "fs.h"
 #include "kotorpx.h"
 #include "log.h"
 #include "str.h"
 
-enum scene_Error {
-    SCENE_ERROR_NONE = 0,
-    SCENE_ERROR_FILE_DOES_NOT_EXIST,
-};
-
 enum scene_CommandType {
     SCENE_COMMAND_UNKNOWN,
     SCENE_COMMAND_CELL_DIMENSIONS,
-    SCENE_COMMAND_TILE_MAP,
+    SCENE_COMMAND_TILEMAP,
     SCENE_COMMAND_PLACE_TILE,
 };
 
-struct scene_Scene {
-    enum scene_Error error;
-};
+struct scene_Scene {};
 
 struct scene_CommandCellDimensions {
     int32_t x, y;
@@ -36,7 +30,7 @@ struct scene_CommandTileMap {
 };
 
 struct scene_CommandPlaceTile {
-    uint32_t tile_map_id;
+    uint32_t tilemap_id;
     uint32_t tile_idx;
     int32_t cell_x, cell_y;
 };
@@ -47,7 +41,7 @@ struct scene_Command {
 
     union {
         struct scene_CommandCellDimensions cell_dimensions;
-        struct scene_CommandTileMap tile_map;
+        struct scene_CommandTileMap tilemap;
         struct scene_CommandPlaceTile place_tile;
     } cmd;
 };
@@ -57,21 +51,6 @@ struct scene_ParsedScnFile {
     OWNED struct scene_Command* cmds;
     uint32_t n_cmds;
 };
-
-static bool parse_px_value(char* s, int32_t* n) {
-    char* endptr = s;
-    int32_t ret = strtol(s, &endptr, 10);
-    if (endptr == s) {
-        E("invalid dimension: nan\n");
-        return false;
-    }
-    if (strlen(endptr) != 2 || strcmp(endptr, "px")) {
-        E("expected 'px' suffix\n");
-        return false;
-    }
-    *n = ret;
-    return true;
-}
 
 static bool cmd_cell_dimensions_parse(
     struct scene_CommandCellDimensions* self,
@@ -89,65 +68,85 @@ static bool cmd_cell_dimensions_parse(
           split.num_tokens - 1);
     }
 
+    str_split_next(&split);
+    char* x_str = str_split_next(&split);
+    char* y_str = str_split_next(&split);
+    char* endptr = NULL;
+
+    self->x = strtol(x_str, &endptr, 10);
+    if (strcmp(endptr, "px") != 0) {
+        E("%s:%d expected px suffix for cell dimension x, got %s\n",
+          scene_path,
+          line_no,
+          x_str);
+        return false;
+    }
+    self->y = strtol(y_str, &endptr, 10);
+    if (strcmp(endptr, "px") != 0) {
+        E("%s:%d expected px suffix for cell dimension y, got %s\n",
+          scene_path,
+          line_no,
+          y_str);
+        return false;
+    }
+
     return true;
 }
 
-static bool cmd_tile_map_parse(
+static bool cmd_tilemap_parse(
     struct scene_CommandTileMap* self,
     char* line,
     uint32_t line_no,
     const char* scene_path
 ) {
-    *self = (struct scene_CommandTileMap) {0};
-    int32_t cmd_end = str_find_index(line, ' ', 0);
-    int32_t id_end = str_find_index(line, ' ', cmd_end + 1);
-    int32_t path_end = str_find_index(line, ' ', id_end + 1);
-
-    if (cmd_end < 0) {
-        E("no argument after :tile_map\n");
+    struct str_SplitIter split = str_split(line, ' ');
+    if (split.num_tokens != 3) {
+        E("%s:%d :tilemap expects 2 arguments, got %d\n",
+          scene_path,
+          line_no,
+          split.num_tokens - 1);
         return false;
     }
 
-    if (id_end < 0) {
-        E("no path found after :tile_map id\n");
+    str_split_next(&split);
+    char* id_str = str_split_next(&split);
+    char* tilemap_path = str_split_next(&split);
+    char* endptr = NULL;
+
+    self->id = strtol(id_str, &endptr, 10);
+    if (*endptr != 0) {
+        E("%s:%d invalid id: %s\n", scene_path, line_no, id_str);
         return false;
     }
 
-    if (path_end >= 0) {
-        line[path_end] = 0;
-    }
-    line[id_end] = 0;
-
-    char* id_str = &line[cmd_end + 1];
-    char* id_end_str = id_str;
-    int32_t id = strtol(id_str, &id_end_str, 10);
-    if (id_end_str != &line[id_end]) {
-        E("wrong id format: %s\n", id_str);
+    struct fs_FileInfo atlas_fi = fs_file_info(tilemap_path);
+    if (!atlas_fi.exists) {
+        E("%s:%d invalid tilemap path: %s does not exist\n",
+          scene_path,
+          line_no,
+          tilemap_path);
         return false;
     }
-    self->id = id;
-
-    char* path_str = &line[id_end + 1];
-    struct fs_FileInfo fi = fs_file_info(path_str);
-    if (!fi.exists) {
-        E("path '%s' does not exist for tile map\n", path_str);
+    if (!atlas_fi.is_dir) {
+        E("%s:%d invalid tilemap path: %s is not a directory\n",
+          scene_path,
+          line_no,
+          tilemap_path);
         return false;
     }
-    if (!fi.is_dir) {
-        E("path '%s' is not a directory\n", path_str);
-        return false;
-    }
+    self->atlas_path = (char*)malloc(strlen(tilemap_path) + 1);
+    strcpy_s(self->atlas_path, strlen(tilemap_path) + 1, tilemap_path);
+    strcpy_s(
+        self->dir_atlas_extension,
+        sizeof(self->dir_atlas_extension),
+        ".png"
+    );
     self->is_dir_atlas = true;
-    strcpy(self->dir_atlas_extension, ".png");
-    uint32_t path_size = strlen(path_str) + 1;
-    self->atlas_path = malloc(path_size);
-    memset(self->atlas_path, 0, path_size);
-    strcpy(self->atlas_path, path_str);
 
     return true;
 }
 
-bool cmd_place_tile_parse(
+static bool cmd_place_tile_parse(
     struct scene_CommandPlaceTile* self,
     char* line,
     uint32_t line_no,
@@ -170,7 +169,7 @@ bool cmd_place_tile_parse(
     bool error = false;
 
     char* endptr = NULL;
-    self->tile_map_id = strtol(id_str, &endptr, 10);
+    self->tilemap_id = strtol(id_str, &endptr, 10);
     if (*endptr != 0) {
         error = true;
         E("%s:%d invalid id: %s\n", scene_path, line_no, id_str);
@@ -197,23 +196,23 @@ bool cmd_place_tile_parse(
     return !error;
 }
 
-struct scene_Scene scene_new(const char* load_path) {
-    struct scene_Scene ret = {0};
-    struct scene_ParsedScnFile parsed = {0};
+bool scene_load(struct scene_Scene* self, const char* load_path) {
+    struct scene_ParsedScnFile parsed = {};
 
     struct fs_FileInfo fi = fs_file_info(load_path);
     if (!fi.exists || fi.is_dir) {
-        ret.error = SCENE_ERROR_FILE_DOES_NOT_EXIST;
         E("could not load scene: file %s does not exist or is a folder\n",
           load_path);
-        return ret;
+        return false;
     }
 
-    struct fs_SplitIter iter = fs_split_iter_new(load_path, '\n');
-    char* line = fs_split_iter_next(&iter);
+    char* scene_file_contents = fs_read_file_to_str(load_path);
+    assert(scene_file_contents);
 
-    for (; line; line = fs_split_iter_next(&iter)) {
-        if (strcmp(line, ":") == 0) {
+    struct str_SplitIter line_iter = str_split(scene_file_contents, '\n');
+    char* line;
+    while ((line = str_split_next(&line_iter))) {
+        if (str_starts_with(line, ":")) {
             parsed.n_cmds++;
         }
     }
@@ -222,15 +221,14 @@ struct scene_Scene scene_new(const char* load_path) {
         sizeof(struct scene_Command) * parsed.n_cmds
     );
     assert(parsed.cmds);
-    uint32_t cmd_offset = 0;
+
     bool error = false;
+    str_split_restart(&line_iter);
 
-    fs_split_iter_restart(&iter);
-    line = fs_split_iter_next(&iter);
-
-    for (; line; line = fs_split_iter_next(&iter)) {
-        struct scene_Command* cur_cmd = &parsed.cmds[cmd_offset];
-        cur_cmd->line_number = iter.token_number;
+    while ((line = str_split_next(&line_iter))) {
+        struct scene_Command* cur_cmd = &parsed.cmds[line_iter.next_token - 1];
+        uint32_t line_no = str_split_seen_seps(&line_iter) + 1;
+        cur_cmd->line_number = line_no;
         if (str_starts_with(line, ":cell_dimensions")) {
             cur_cmd->cmd_type = SCENE_COMMAND_CELL_DIMENSIONS;
             error = error
@@ -240,11 +238,11 @@ struct scene_Scene scene_new(const char* load_path) {
                         cur_cmd->line_number,
                         load_path
                 );
-        } else if (str_starts_with(line, ":tile_map")) {
-            cur_cmd->cmd_type = SCENE_COMMAND_TILE_MAP;
+        } else if (str_starts_with(line, ":tilemap")) {
+            cur_cmd->cmd_type = SCENE_COMMAND_TILEMAP;
             error = error
-                || !cmd_tile_map_parse(
-                        &cur_cmd->cmd.tile_map,
+                || !cmd_tilemap_parse(
+                        &cur_cmd->cmd.tilemap,
                         line,
                         cur_cmd->line_number,
                         load_path
@@ -268,17 +266,17 @@ struct scene_Scene scene_new(const char* load_path) {
                 "%s:%d %s: unrecognized command\n",
                 load_path,
                 cur_cmd->line_number,
-                line
+                line + 1
             );
         }
-        cmd_offset++;
     }
 
     if (error) {
         E("could not parse scene file %s\n", load_path);
+        return false;
     }
 
-    return ret;
+    return true;
 }
 
 void scene_delete(struct scene_Scene* self) {}

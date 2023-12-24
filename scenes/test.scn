@@ -1,5 +1,5 @@
 :cell_dimensions 100px 100px  
-:tile_map 123 assets/tilemap_a/
+:tilemap 123 assets/tilemap_a/
 :place_tile 123 0 0 0
 :place_tile 123 0 1 0
 :place_tile 123 0 2 0
