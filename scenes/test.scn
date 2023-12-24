@@ -1,11 +1,12 @@
-:cell_dimensions 100px 100px
-:tile_map tm_a assets/tilemap_a/
-:place_tile tm_a 0 0 0
-:place_tile tm_a 0 1 0
-:place_tile tm_a 0 2 0
-:place_tile tm_a 1 0 1
-:place_tile tm_a 1 1 1
-:place_tile tm_a 1 2 1
-:place_tile tm_a 2 0 2
-:place_tile tm_a 2 1 2
-:place_tile tm_a 2 2 2
+:cell_dimensions 100px 100px  
+:tile_map 123 assets/tilemap_a/
+:place_tile 123 0 0 0
+:place_tile 123 0 1 0
+:place_tile 123 0 2 0
+:foo
+:place_tile 123 1 0 1
+:place_tile 123 1 1 1
+:place_tile 123 1 2 1
+:place_tile 123 2 0 2
+:place_tile 123 2 1 2
+:place_tile 123 2 2 2

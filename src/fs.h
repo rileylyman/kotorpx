@@ -34,6 +34,14 @@ struct fs_FileInfo {
 struct fs_FileInfo fs_file_info(const char *path) {
   struct fs_FileInfo fi = {0};
 
+  // Need to do this because for some reason stat crashes on windows if the file
+  // doesn't exist.
+  int fd = open(path, 0);
+  if (fd < 0) {
+    fi.exists = false;
+    return fi;
+  }
+
   struct stat statbuf;
   int res = stat(path, &statbuf);
   if (res < 0) {
@@ -87,7 +95,7 @@ char *fs_split_iter_next(struct fs_SplitIter *self) {
     return NULL;
   }
 
-  ret.token_number++;
+  self->token_number++;
 
   if (self->line[0] == self->sep) {
     return fs_split_iter_next(self);
@@ -97,6 +105,11 @@ char *fs_split_iter_next(struct fs_SplitIter *self) {
     self->line[n_bytes - 1] = 0;
   }
   return self->line;
+}
+
+void fs_split_iter_restart(struct fs_SplitIter *self) {
+  fseek(self->file, 0, SEEK_SET);
+  self->token_number = 0;
 }
 
 void fs_split_iter_delete(struct fs_SplitIter *self) {
