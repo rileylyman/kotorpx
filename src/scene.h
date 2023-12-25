@@ -4,10 +4,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <cctype>
+
 #include "fs.h"
 #include "kotorpx.h"
 #include "log.h"
 #include "str.h"
+
 
 enum scene_CommandType {
     SCENE_COMMAND_UNKNOWN,
@@ -196,7 +199,149 @@ static bool cmd_place_tile_parse(
     return !error;
 }
 
-bool scene_load(struct scene_Scene* self, const char* load_path) {
+enum scene_TokenType {
+    SCENE_TOKEN_UNKNOWN,
+    SCENE_TOKEN_CMD_CELL_DIMENSIONS = 1,
+    SCENE_TOKEN_CMD_TILEMAP,
+    SCENE_TOKEN_CMD_PACE_TILE,
+    // Commands are < 128, args are >= 128
+    SCENE_TOKEN_ARG_INT = 128,
+    SCENE_TOKEN_ARG_INT_PX,
+    SCENE_TOKEN_ARG_STR,
+};
+
+static bool scene_token_is_command(scene_TokenType self) {
+    return self < 128 && self > 0;
+}
+
+struct scene_Token {
+    enum scene_TokenType type;
+    uint32_t line_no;
+    uint32_t col_start;
+    uint32_t col_end;
+
+    union {
+        int32_t arg_int;
+        char* str;
+    } data;
+};
+
+struct scene_Lexer {
+    OWNED scene_Token* tokens;
+    uint32_t tokens_count;
+    uint32_t tokens_cap;
+
+    uint32_t cur_token_idx;
+
+    uint32_t cur, line_no, beg;
+    char* contents;
+};
+
+static void scene_lexer_eat_ws(scene_Lexer* self) {
+    while (isspace(self->contents[self->cur])) {
+        if (self->contents[self->cur] == '\n') {
+            self->line_no++;
+            self->beg = self->cur + 1;
+        }
+        self->cur++;
+    }
+}
+
+static bool scene_lexer_lex_int(scene_Lexer* self, scene_Token* token) {
+    token->line_no = self->line_no;
+    token->col_start = self->cur - self->beg;
+    char* endptr;
+    int32_t parsed = strtol(self->contents + self->cur, &endptr, 10);
+    if (*endptr != 0 && !isspace(*endptr)) {
+        return false;
+    }
+    token->data.arg_int = parsed;
+    self->cur += (endptr - self->contents + self->cur);
+    token->col_end = self->cur - self->beg - 1;
+    token->type = SCENE_TOKEN_ARG_INT;
+    return true;
+}
+
+static bool scene_lexer_lex_command(scene_Lexer* self, scene_Token* token) {
+    if (self->contents[self->cur] != ':') {
+        return false;
+    }
+    uint32_t initial_cur = self->cur;
+    token->line_no = self->line_no;
+    token->col_start = self->cur - self->beg;
+    self->cur++;
+    while (isalnum(self->contents[self->cur])) {
+        self->cur++;
+    }
+    token->col_end = self->cur - self->beg;
+    uint32_t command_len = self->cur - initial_cur;
+    char* command_buf = (char*)malloc(command_len);  // skip ':' so no +1
+    memcpy(command_buf, &self->contents[initial_cur + 1], command_len);
+    command_buf[command_len - 1] = 0;
+    return true;
+}
+
+static bool scene_lexer_lex_str(scene_Lexer* self, scene_Token* token) {}
+
+bool scene_lexer_lex(scene_Lexer* self, char* contents) {
+    uint32_t cur = 0, line = 1, beg = 0;
+    uint32_t contents_len = strlen(contents);
+
+    while (cur < contents_len) {
+        if (contents[cur] == '\n') {
+            cur++;
+            line++;
+            beg = cur;
+            continue;
+        }
+        if (isspace(contents[cur])) {
+            cur++;
+            continue;
+        }
+    }
+}
+
+void scene_lexer_add_token(scene_Lexer* self, scene_Token token) {
+    if (self->tokens_count >= self->tokens_cap) {
+        self->tokens_cap *= 2;
+        self->tokens = (scene_Token*)realloc(self->tokens, self->tokens_cap);
+    }
+    self->tokens[self->tokens_count++] = token;
+}
+
+scene_Token* scene_lexer_next(scene_Lexer* self) {
+    if (self->cur_token_idx >= self->tokens_count) {
+        return NULL;
+    }
+    return &self->tokens[self->cur_token_idx++];
+}
+
+scene_Token* scene_lexer_peek(scene_Lexer* self, uint32_t n_forward) {
+    if (self->cur_token_idx + n_forward >= self->tokens_count) {
+        return NULL;
+    }
+    return &self->tokens[self->cur_token_idx + n_forward];
+}
+
+uint32_t scene_lexer_argcount(scene_Lexer* self, uint32_t n) {
+    uint32_t forward = 0;
+    scene_Token* token;
+    while ((token = scene_lexer_peek(self, forward))) {
+        if (scene_token_is_command(token->type)) {
+            return forward;
+        }
+        forward++;
+    }
+    return forward;
+}
+
+void scene_lexer_delete(scene_Lexer* self) {
+    free(self->tokens);
+}
+
+bool scene_load(struct scene_Scene* self, const char* load_path) {}
+
+bool _scene_load(struct scene_Scene* self, const char* load_path) {
     struct scene_ParsedScnFile parsed = {};
 
     struct fs_FileInfo fi = fs_file_info(load_path);
@@ -227,35 +372,35 @@ bool scene_load(struct scene_Scene* self, const char* load_path) {
 
     while ((line = str_split_next(&line_iter))) {
         struct scene_Command* cur_cmd = &parsed.cmds[line_iter.next_token - 1];
-        uint32_t line_no = str_split_seen_seps(&line_iter) + 1;
+        uint32_t line_no = str_split_seen_seps(&line_iter);
         cur_cmd->line_number = line_no;
         if (str_starts_with(line, ":cell_dimensions")) {
             cur_cmd->cmd_type = SCENE_COMMAND_CELL_DIMENSIONS;
-            error = error
-                || !cmd_cell_dimensions_parse(
+            error = !cmd_cell_dimensions_parse(
                         &cur_cmd->cmd.cell_dimensions,
                         line,
                         cur_cmd->line_number,
                         load_path
-                );
+                    )
+                || error;
         } else if (str_starts_with(line, ":tilemap")) {
             cur_cmd->cmd_type = SCENE_COMMAND_TILEMAP;
-            error = error
-                || !cmd_tilemap_parse(
+            error = !cmd_tilemap_parse(
                         &cur_cmd->cmd.tilemap,
                         line,
                         cur_cmd->line_number,
                         load_path
-                );
+                    )
+                || error;
         } else if (str_starts_with(line, ":place_tile")) {
             cur_cmd->cmd_type = SCENE_COMMAND_PLACE_TILE;
-            error = error
-                || !cmd_place_tile_parse(
+            error = !cmd_place_tile_parse(
                         &cur_cmd->cmd.place_tile,
                         line,
                         cur_cmd->line_number,
                         load_path
-                );
+                    )
+                || error;
         } else {
             error = true;
             int32_t space_idx = str_find_index(line, ' ', 0);

@@ -69,7 +69,7 @@ uint32_t str_split_seen_seps(struct str_SplitIter* self) {
     char* beg = self->s;
     uint32_t ret = 0;
     while (beg != self->cur) {
-        if (*beg == self->sep) {
+        if (*beg == 0) {
             ret++;
         }
         beg++;
