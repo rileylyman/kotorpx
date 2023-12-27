@@ -1,0 +1,11 @@
+{
+    "customizations": {
+        "codespaces": {
+            "repositories": {
+                "rileylyman/shift-c": {
+                    "permissions": "write-all"
+                }
+            }
+        }
+    }
+}
